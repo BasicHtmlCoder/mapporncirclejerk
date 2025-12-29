@@ -1,21 +1,48 @@
-import './style.css'
+import './style.css';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
+import { AppState } from './state/AppState';
+import { MapManager } from './map/MapManager';
+import { Sidebar } from './ui/Sidebar';
+import { loadCountriesGeoJSON } from './utils/geojson';
 
+// Set Leaflet icon path
 L.Icon.Default.imagePath = 'img/icon/';
 
-const m_mono = L.tileLayer('https://tile.mierune.co.jp/mierune_mono/{z}/{x}/{y}.png', {
-    attribution: "Maptiles by <a href='http://mierune.co.jp/' target='_blank'>MIERUNE</a>, under CC BY. Data by <a href='http://osm.org/copyright' target='_blank'>OpenStreetMap</a> contributors, under ODbL."
-});
+// Application initialization
+async function initApp() {
+  try {
+    // Show loading indicator
+    const loadingDiv = document.createElement('div');
+    loadingDiv.className = 'loading';
+    loadingDiv.textContent = '🌍 Loading countries';
+    document.body.appendChild(loadingDiv);
 
-const map = L.map('map', {
-    center: [35.681, 139.767],
-    zoom: 11,
-    zoomControl: true,
-    layers: [m_mono]
-});
+    // Initialize state
+    const state = new AppState();
 
-L.control.scale({
-    imperial: false,
-    maxWidth: 300
-}).addTo(map);
+    // Initialize map
+    const mapManager = new MapManager('map', state);
+
+    // Load GeoJSON data
+    const geojson = await loadCountriesGeoJSON();
+    mapManager.loadCountries(geojson);
+
+    // Load saved state from localStorage
+    state.loadFromLocalStorage();
+
+    // Initialize UI
+    new Sidebar('sidebar', state, mapManager);
+
+    // Remove loading indicator
+    document.body.removeChild(loadingDiv);
+
+    console.log('🗺️ MapPornCircleJerk initialized successfully! Time to create some chaos! 🎨');
+  } catch (error) {
+    console.error('Failed to initialize application:', error);
+    alert('😱 Oops! Something went wrong. Try refreshing the page!');
+  }
+}
+
+// Start the app
+initApp();
