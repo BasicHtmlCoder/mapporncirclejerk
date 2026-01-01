@@ -2,7 +2,7 @@ import { CountryProperties } from '../types';
 
 export async function loadCountriesGeoJSON(): Promise<GeoJSON.FeatureCollection<GeoJSON.Geometry, CountryProperties>> {
   try {
-    const response = await fetch('/mapporncirclejerk/data/countries.geojson');
+    const response = await fetch('/data/countries.geojson');
     if (!response.ok) {
       throw new Error(`Failed to load GeoJSON: ${response.statusText}`);
     }
