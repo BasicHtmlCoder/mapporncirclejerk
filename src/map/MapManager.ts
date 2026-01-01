@@ -24,12 +24,10 @@ export class MapManager {
       maxBoundsViscosity: 1.0, // Make bounds hard limit
     });
 
-    // Add tile layer with CORS enabled for export
-    L.tileLayer('https://tile.mierune.co.jp/mierune_mono/{z}/{x}/{y}.png', {
-      attribution:
-        "Maptiles by <a href='http://mierune.co.jp/' target='_blank'>MIERUNE</a>, under CC BY. Data by <a href='http://osm.org/copyright' target='_blank'>OpenStreetMap</a> contributors, under ODbL.",
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap contributors',
       crossOrigin: 'anonymous',
-      noWrap: true, // Prevent tile wrapping
+      noWrap: true
     }).addTo(this.map);
 
     // Add scale control
