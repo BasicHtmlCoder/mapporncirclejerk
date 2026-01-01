@@ -24,7 +24,7 @@ export class MapManager {
       maxBoundsViscosity: 1.0, // Make bounds hard limit
     });
 
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    L.tileLayer('http://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '© OpenStreetMap contributors',
       crossOrigin: 'anonymous',
       noWrap: true
