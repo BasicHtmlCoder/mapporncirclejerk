@@ -237,8 +237,23 @@ export class MapManager {
     // Pre-load flag image for export (if not already loaded)
     if (!this.flagImages.has(flagCode)) {
       const img = new Image();
+      // IMPORTANT: Set crossOrigin BEFORE setting src to avoid CORS issues
       img.crossOrigin = 'anonymous';
-      img.src = `https://flagcdn.com/w160/${flagCode.toLowerCase()}.png`;
+      // Use a CORS-friendly approach: load via data URL for better compatibility
+      const flagUrl = `https://flagcdn.com/w160/${flagCode.toLowerCase()}.png`;
+
+      // Try to load with CORS using fetch for better control
+      fetch(flagUrl, { mode: 'cors' })
+        .then(response => response.blob())
+        .then(blob => {
+          const objectUrl = URL.createObjectURL(blob);
+          img.src = objectUrl;
+        })
+        .catch(() => {
+          // Fallback to direct loading if fetch fails
+          img.src = flagUrl;
+        });
+
       this.flagImages.set(flagCode, img);
     }
 
@@ -278,6 +293,7 @@ export class MapManager {
     // Create image element with flag
     const image = document.createElementNS('http://www.w3.org/2000/svg', 'image');
     image.setAttribute('href', `https://flagcdn.com/w160/${flagCode.toLowerCase()}.png`);
+    image.setAttribute('crossorigin', 'anonymous'); // Enable CORS for SVG images
     image.setAttribute('width', '60');
     image.setAttribute('height', '40');
     image.setAttribute('preserveAspectRatio', 'none'); // Stretch to fit tile
@@ -492,7 +508,7 @@ export class MapManager {
   private async waitForFlagImagesToLoad(): Promise<void> {
     const promises: Promise<void>[] = [];
 
-    this.flagImages.forEach((img, flagCode) => {
+    this.flagImages.forEach((img, _) => {
       if (!img.complete) {
         promises.push(
           new Promise((resolve) => {

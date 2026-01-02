@@ -94,7 +94,7 @@ export interface AppConfig {
 
 export const DEFAULT_CONFIG: AppConfig = {
   mapCenter: [20, 0],
-  mapZoom: 2,
-  minZoom: 1,
-  maxZoom: 6,
+  mapZoom: 4,
+  minZoom: 3,
+  maxZoom: 5,
 };
