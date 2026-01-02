@@ -176,7 +176,6 @@ export class MapManager {
     };
 
     // Patch the _print method to add footer text before converting to blob
-    const originalPrint = bigImageControl._print.bind(bigImageControl);
     bigImageControl._print = function() {
       const self = this;
 
@@ -195,24 +194,27 @@ export class MapManager {
       self.canvas.height = dimensions.y;
       self.ctx = self.canvas.getContext('2d');
 
-      bigImageControl._changeScale.call(self, document.getElementById('scale').value);
+      const scaleElement = document.getElementById('scale') as HTMLInputElement | null;
+      bigImageControl._changeScale.call(self, scaleElement?.value || '1');
 
-      let promise = new Promise(function (resolve, reject) {
+      let promise = new Promise(function (resolve, _reject) {
         bigImageControl._getLayers.call(self, resolve);
       });
 
       promise.then(() => {
-        return new Promise(((resolve, reject) => {
-          for (const [key, value] of Object.entries(self.tilesImgs)) {
-            self.ctx.drawImage(value.img, value.x, value.y, self.tileSize, self.tileSize);
+        return new Promise(((resolve, _reject) => {
+          for (const [_key, value] of Object.entries(self.tilesImgs)) {
+            const tile = value as any;
+            self.ctx.drawImage(tile.img, tile.x, tile.y, self.tileSize, self.tileSize);
           }
-          for (const [key, value] of Object.entries(self.path)) {
+          for (const [_key, value] of Object.entries(self.path)) {
             bigImageControl._drawPath.call(self, value);
           }
-          for (const [key, value] of Object.entries(self.markers)) {
-            self.ctx.drawImage(value.img, value.x, value.y);
+          for (const [_key, value] of Object.entries(self.markers)) {
+            const marker = value as any;
+            self.ctx.drawImage(marker.img, marker.x, marker.y);
           }
-          for (const [key, value] of Object.entries(self.circles)) {
+          for (const [_key, value] of Object.entries(self.circles)) {
             bigImageControl._drawCircle.call(self, value);
           }
 
@@ -249,7 +251,7 @@ export class MapManager {
           ctx.fillStyle = 'rgba(0, 0, 0, 0.9)';
           ctx.fillText(text, x, y - padding / 2);
 
-          resolve();
+          resolve(undefined);
         }));
       }).then(() => {
         self.canvas.toBlob(function (blob) {
