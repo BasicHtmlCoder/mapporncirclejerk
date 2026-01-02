@@ -10,6 +10,7 @@ export class MapManager {
   private layerMap: Map<string, L.Layer> = new Map();
   private svgOverlay: SVGSVGElement | null = null;
   private flagPatterns: Map<string, string> = new Map();
+  private flagImages: Map<string, HTMLImageElement> = new Map();
 
   constructor(containerId: string, state: AppState) {
     this.state = state;
@@ -111,7 +112,10 @@ export class MapManager {
       resolve();
     };
 
-    // Also patch the _drawPath method to handle multiple parts
+    // Store reference to MapManager for accessing flag images
+    const mapManager = this;
+
+    // Also patch the _drawPath method to handle multiple parts and flag patterns
     const originalDrawPath = bigImageControl._drawPath.bind(bigImageControl);
     bigImageControl._drawPath = function(value: any) {
       if (value.multiParts) {
@@ -123,6 +127,46 @@ export class MapManager {
             this.ctx[count++ ? 'lineTo' : 'moveTo'](point.x, point.y);
           });
           if (partData.closed) this.ctx.closePath();
+
+          // Check if this is a flag pattern (URL reference)
+          if (value.options.fillColor && typeof value.options.fillColor === 'string' && value.options.fillColor.startsWith('url(#flag-pattern-')) {
+            // Extract flag code from pattern ID
+            const match = value.options.fillColor.match(/flag-pattern-([a-z]{2})/);
+            if (match) {
+              const flagCode = match[1].toUpperCase();
+              const img = mapManager.flagImages.get(flagCode);
+
+              if (img && img.complete && img.naturalWidth > 0) {
+                // Image is loaded, create pattern
+                try {
+                  const pattern = this.ctx.createPattern(img, 'repeat');
+                  if (pattern) {
+                    this.ctx.fillStyle = pattern;
+                    this.ctx.globalAlpha = value.options.fillOpacity || 0.9;
+                    this.ctx.fill();
+                    this.ctx.globalAlpha = 1;
+
+                    if (value.options.stroke) {
+                      this.ctx.strokeStyle = value.options.color || '#ffffff';
+                      this.ctx.lineWidth = value.options.weight || 1;
+                      this.ctx.stroke();
+                    }
+                    return; // Don't call _feelPath since we handled it
+                  }
+                } catch (e) {
+                  console.warn('Failed to create flag pattern for export:', e);
+                }
+              }
+
+              // Fallback to gray if image not loaded or failed
+              this.ctx.fillStyle = '#d3d3d3';
+              this.ctx.globalAlpha = 0.7;
+              this.ctx.fill();
+              this.ctx.globalAlpha = 1;
+              return;
+            }
+          }
+
           this._feelPath(value.options);
         });
       } else {
@@ -188,6 +232,14 @@ export class MapManager {
     // Check if pattern already exists
     if (this.flagPatterns.has(flagCode)) {
       return this.flagPatterns.get(flagCode)!;
+    }
+
+    // Pre-load flag image for export (if not already loaded)
+    if (!this.flagImages.has(flagCode)) {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.src = `https://flagcdn.com/w160/${flagCode.toLowerCase()}.png`;
+      this.flagImages.set(flagCode, img);
     }
 
     // Find or create SVG element with defs
@@ -437,42 +489,70 @@ export class MapManager {
     });
   }
 
+  private async waitForFlagImagesToLoad(): Promise<void> {
+    const promises: Promise<void>[] = [];
+
+    this.flagImages.forEach((img, flagCode) => {
+      if (!img.complete) {
+        promises.push(
+          new Promise((resolve) => {
+            if (img.complete) {
+              resolve();
+            } else {
+              img.onload = () => resolve();
+              img.onerror = () => resolve(); // Resolve even on error to not block export
+            }
+          })
+        );
+      }
+    });
+
+    if (promises.length > 0) {
+      await Promise.all(promises);
+      // Small additional delay to ensure everything is ready
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+  }
+
   prepareForExport(): void {
     // Close all tooltips
     this.closeAllTooltips();
 
-    // Refresh all layer styles to ensure they're captured correctly
-    this.layerMap.forEach((layer, countryId) => {
-      if (layer instanceof L.Path) {
-        const country = this.state.getCountry(countryId);
-        if (country) {
-          const color = this.state.getCountryColor(countryId);
-          const flag = this.state.getCountryFlag(countryId);
+    // Wait for flag images to load before proceeding
+    this.waitForFlagImagesToLoad().then(() => {
+      // Refresh all layer styles to ensure they're captured correctly
+      this.layerMap.forEach((layer, countryId) => {
+        if (layer instanceof L.Path) {
+          const country = this.state.getCountry(countryId);
+          if (country) {
+            const color = this.state.getCountryColor(countryId);
+            const flag = this.state.getCountryFlag(countryId);
 
-          let fillColor = color || '#d3d3d3';
-          let fillOpacity = 0.7;
+            let fillColor = color || '#d3d3d3';
+            let fillOpacity = 0.7;
 
-          // Use flag pattern if flag is set
-          if (flag) {
-            const patternId = this.createFlagPattern(flag);
-            fillColor = `url(#${patternId})`;
-            fillOpacity = 0.9;
+            // Use flag pattern if flag is set
+            if (flag) {
+              const patternId = this.createFlagPattern(flag);
+              fillColor = `url(#${patternId})`;
+              fillOpacity = 0.9;
+            }
+
+            const style = {
+              fill: true,
+              fillColor: fillColor,
+              fillOpacity: fillOpacity,
+              stroke: true,
+              color: '#ffffff',
+              weight: 1,
+              opacity: 1,
+            };
+            layer.setStyle(style);
+            // Ensure the options are also set
+            layer.options = { ...layer.options, ...style };
           }
-
-          const style = {
-            fill: true,
-            fillColor: fillColor,
-            fillOpacity: fillOpacity,
-            stroke: true,
-            color: '#ffffff',
-            weight: 1,
-            opacity: 1,
-          };
-          layer.setStyle(style);
-          // Ensure the options are also set
-          layer.options = { ...layer.options, ...style };
         }
-      }
+      });
     });
   }
 
