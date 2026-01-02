@@ -8,6 +8,8 @@ export class MapManager {
   private map: L.Map;
   private state: AppState;
   private layerMap: Map<string, L.Layer> = new Map();
+  private svgOverlay: SVGSVGElement | null = null;
+  private flagPatterns: Map<string, string> = new Map();
 
   constructor(containerId: string, state: AppState) {
     this.state = state;
@@ -20,14 +22,17 @@ export class MapManager {
       maxZoom: DEFAULT_CONFIG.maxZoom,
       zoomControl: true,
       worldCopyJump: false, // Prevent world wrapping
-      maxBounds: [[-90, -180], [90, 180]], // Constrain to single world view
+      maxBounds: [[-85, -180], [85, 180]], // Constrain to valid tile bounds
       maxBoundsViscosity: 1.0, // Make bounds hard limit
     });
 
-    L.tileLayer('http://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '© OpenStreetMap contributors',
       crossOrigin: 'anonymous',
-      noWrap: true
+      noWrap: true,
+      bounds: [[-85, -180], [85, 180]], // Limit tile loading to valid range
+      minZoom: DEFAULT_CONFIG.minZoom,
+      maxZoom: DEFAULT_CONFIG.maxZoom,
     }).addTo(this.map);
 
     // Add scale control
@@ -135,6 +140,9 @@ export class MapManager {
       }
     });
 
+    // Initialize SVG overlay for flag patterns
+    this.initializeSVGOverlay();
+
     // Listen for state changes
     this.state.addListener((countryId, _color) => {
       if (countryId === '*') {
@@ -144,6 +152,89 @@ export class MapManager {
         this.updateCountryStyle(countryId);
       }
     });
+  }
+
+  private initializeSVGOverlay(): void {
+    // Get the map's SVG overlay or create one
+    // const mapContainer = this.map.getContainer();
+    const panes = (this.map as any)._panes;
+
+    // Look for existing SVG in overlay pane
+    let svgElement = panes.overlayPane.querySelector('svg');
+
+    if (!svgElement) {
+      // If no SVG exists, we'll create patterns in the first GeoJSON layer's SVG
+      // This will be done when layers are added
+      return;
+    }
+
+    this.svgOverlay = svgElement;
+    this.ensureSVGDefs();
+  }
+
+  private ensureSVGDefs(): void {
+    if (!this.svgOverlay) return;
+
+    let defs = this.svgOverlay.querySelector('defs');
+    if (!defs) {
+      defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+      this.svgOverlay.insertBefore(defs, this.svgOverlay.firstChild);
+    }
+  }
+
+  private createFlagPattern(flagCode: string): string {
+    const patternId = `flag-pattern-${flagCode.toLowerCase()}`;
+
+    // Check if pattern already exists
+    if (this.flagPatterns.has(flagCode)) {
+      return this.flagPatterns.get(flagCode)!;
+    }
+
+    // Find or create SVG element with defs
+    const mapContainer = this.map.getContainer();
+    const panes = (this.map as any)._panes;
+    let svgElement = panes.overlayPane.querySelector('svg');
+
+    if (!svgElement) {
+      // Create a hidden SVG element for patterns
+      svgElement = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svgElement.style.position = 'absolute';
+      svgElement.style.width = '0';
+      svgElement.style.height = '0';
+      mapContainer.appendChild(svgElement);
+    }
+
+    this.svgOverlay = svgElement;
+    this.ensureSVGDefs();
+
+    const defs = this.svgOverlay!.querySelector('defs')!;
+
+    // Check if pattern already exists in DOM
+    if (defs.querySelector(`#${patternId}`)) {
+      this.flagPatterns.set(flagCode, patternId);
+      return patternId;
+    }
+
+    // Create pattern element with repeating tiles
+    const pattern = document.createElementNS('http://www.w3.org/2000/svg', 'pattern');
+    pattern.setAttribute('id', patternId);
+    pattern.setAttribute('patternUnits', 'userSpaceOnUse');
+    pattern.setAttribute('width', '60');  // Tile size in pixels
+    pattern.setAttribute('height', '40'); // Tile size in pixels (3:2 flag ratio)
+    pattern.setAttribute('patternTransform', 'scale(1)');
+
+    // Create image element with flag
+    const image = document.createElementNS('http://www.w3.org/2000/svg', 'image');
+    image.setAttribute('href', `https://flagcdn.com/w160/${flagCode.toLowerCase()}.png`);
+    image.setAttribute('width', '60');
+    image.setAttribute('height', '40');
+    image.setAttribute('preserveAspectRatio', 'none'); // Stretch to fit tile
+
+    pattern.appendChild(image);
+    defs.appendChild(pattern);
+
+    this.flagPatterns.set(flagCode, patternId);
+    return patternId;
   }
 
   loadCountries(geojson: GeoJSON.FeatureCollection<GeoJSON.Geometry, CountryProperties>): void {
@@ -176,6 +267,7 @@ export class MapManager {
         id: countryId,
         name: props.NAME || props.NAME_LONG || props.ADMIN,
         color: null,
+        flag: null,
         feature: feature,
       };
       this.state.addCountry(countryState);
@@ -202,7 +294,21 @@ export class MapManager {
 
     const countryId = this.getCountryId(feature.properties);
     const color = this.state.getCountryColor(countryId);
+    const flag = this.state.getCountryFlag(countryId);
 
+    // If flag is set, use pattern fill
+    if (flag) {
+      const patternId = this.createFlagPattern(flag);
+      return {
+        fillColor: `url(#${patternId})`,
+        fillOpacity: 0.9,
+        color: '#ffffff',
+        weight: 1,
+        className: 'flag-filled',
+      };
+    }
+
+    // Otherwise use color
     return {
       fillColor: color || '#d3d3d3',
       fillOpacity: 0.7,
@@ -264,8 +370,18 @@ export class MapManager {
         target.closeTooltip();
       },
       click: () => {
-        const selectedColor = this.state.getSelectedColor();
-        this.state.setCountryColor(countryId, selectedColor);
+        // Apply color or flag based on paint mode
+        if (this.state.getPaintMode() === 'color') {
+          const selectedColor = this.state.getSelectedColor();
+          this.state.setCountryColor(countryId, selectedColor);
+          // Clear flag if switching to color
+          this.state.clearCountryFlag(countryId);
+        } else {
+          const selectedFlag = this.state.getSelectedFlag();
+          this.state.setCountryFlag(countryId, selectedFlag);
+          // Clear color if switching to flag
+          this.state.clearCountryColor(countryId);
+        }
 
         // Save to localStorage after each change
         this.state.saveToLocalStorage();
@@ -331,10 +447,22 @@ export class MapManager {
         const country = this.state.getCountry(countryId);
         if (country) {
           const color = this.state.getCountryColor(countryId);
+          const flag = this.state.getCountryFlag(countryId);
+
+          let fillColor = color || '#d3d3d3';
+          let fillOpacity = 0.7;
+
+          // Use flag pattern if flag is set
+          if (flag) {
+            const patternId = this.createFlagPattern(flag);
+            fillColor = `url(#${patternId})`;
+            fillOpacity = 0.9;
+          }
+
           const style = {
             fill: true,
-            fillColor: color || '#d3d3d3',
-            fillOpacity: 0.7,
+            fillColor: fillColor,
+            fillOpacity: fillOpacity,
             stroke: true,
             color: '#ffffff',
             weight: 1,
