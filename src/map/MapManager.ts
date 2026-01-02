@@ -254,7 +254,8 @@ export class MapManager {
           resolve(undefined);
         }));
       }).then(() => {
-        self.canvas.toBlob(function (blob) {
+        self.canvas.toBlob(function (blob: Blob | null) {
+          if (!blob) return;
           let link = document.createElement('a');
           link.download = "my-image.png";
           link.href = URL.createObjectURL(blob);
